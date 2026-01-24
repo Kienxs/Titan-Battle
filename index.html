@@ -1,31 +1,148 @@
-<script src="/socket.io/socket.io.js"></script>
-<script>
-    const socket = io(); // Tự động kết nối tới server hiện tại
-    const canvas = document.createElement("canvas");
-    canvas.width = 800; canvas.height = 500;
-    document.body.appendChild(canvas);
-    const ctx = canvas.getContext("2d");
-
-    let players = {};
-    let myPos = { x: 400, y: 250 };
-
-    socket.on('update', (data) => { players = data; });
-
-    window.addEventListener("keydown", (e) => {
-        if (e.key === "ArrowUp") myPos.y -= 10;
-        if (e.key === "ArrowDown") myPos.y += 10;
-        if (e.key === "ArrowLeft") myPos.x -= 10;
-        if (e.key === "ArrowRight") myPos.x += 10;
-        socket.emit('move', myPos);
-    });
-
-    function draw() {
-        ctx.clearRect(0, 0, 800, 500);
-        for (let id in players) {
-            ctx.fillStyle = players[id].color;
-            ctx.fillRect(players[id].x, players[id].y, 30, 30);
+<!DOCTYPE html>
+<html>
+<head>
+    <title>JS Battle Arena</title>
+    <style>
+        body { 
+            margin: 0; background: #111; color: white; 
+            font-family: 'Courier New', Courier, monospace;
+            display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh;
         }
-        requestAnimationFrame(draw);
-    }
-    draw();
-</script>
+        #gameContainer { position: relative; box-shadow: 0 0 20px rgba(0,255,0,0.2); }
+        canvas { background: #1a1a1a; border: 2px solid #444; cursor: crosshair; }
+        #ui { position: absolute; top: 10px; left: 10px; pointer-events: none; }
+        #leaderboard { position: absolute; top: 10px; right: 10px; text-align: right; pointer-events: none; }
+        .dead-screen { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 40px; color: red; display: none; font-weight: bold; text-shadow: 2px 2px 0 #000; }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <canvas id="ctx" width="800" height="600"></canvas>
+        <div id="ui">Health: <span id="hpVal">100</span>%</div>
+        <div id="leaderboard"></div>
+        <div id="deadMsg" class="dead-screen">YOU DIED<br><span style="font-size:20px; color:white">Respawning...</span></div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+        const canvas = document.getElementById("ctx");
+        const ctx = canvas.getContext("2d");
+        const hpSpan = document.getElementById("hpVal");
+        const deadMsg = document.getElementById("deadMsg");
+        const leaderboard = document.getElementById("leaderboard");
+
+        // Trạng thái bàn phím
+        let movement = { up: false, down: false, left: false, right: false };
+        let mouse = { x: 0, y: 0 };
+
+        // INPUT: Bàn phím
+        document.addEventListener('keydown', (e) => {
+            if(e.code === 'KeyW' || e.key === 'ArrowUp') movement.up = true;
+            if(e.code === 'KeyS' || e.key === 'ArrowDown') movement.down = true;
+            if(e.code === 'KeyA' || e.key === 'ArrowLeft') movement.left = true;
+            if(e.code === 'KeyD' || e.key === 'ArrowRight') movement.right = true;
+        });
+        document.addEventListener('keyup', (e) => {
+            if(e.code === 'KeyW' || e.key === 'ArrowUp') movement.up = false;
+            if(e.code === 'KeyS' || e.key === 'ArrowDown') movement.down = false;
+            if(e.code === 'KeyA' || e.key === 'ArrowLeft') movement.left = false;
+            if(e.code === 'KeyD' || e.key === 'ArrowRight') movement.right = false;
+        });
+
+        // INPUT: Chuột (để ngắm và bắn)
+        canvas.addEventListener('mousemove', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            mouse.x = e.clientX - rect.left;
+            mouse.y = e.clientY - rect.top;
+        });
+
+        canvas.addEventListener('mousedown', () => {
+            // Tính góc bắn từ tâm nhân vật
+            if (myPlayer) {
+                const angle = Math.atan2(mouse.y - (myPlayer.y + 15), mouse.x - (myPlayer.x + 15));
+                socket.emit('shoot', angle);
+            }
+        });
+
+        // Gửi di chuyển liên tục (60 lần/s)
+        setInterval(() => {
+            socket.emit('move', movement);
+        }, 1000 / 60);
+
+        let myPlayer = null;
+
+        // NHẬN DỮ LIỆU TỪ SERVER
+        socket.on('state', (state) => {
+            ctx.clearRect(0, 0, 800, 600);
+            
+            // Vẽ lưới nền (Grid) cho dễ nhìn
+            ctx.strokeStyle = '#333';
+            ctx.lineWidth = 1;
+            for(let i=0; i<800; i+=50) { ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,600); ctx.stroke(); }
+            for(let j=0; j<600; j+=50) { ctx.beginPath(); ctx.moveTo(0,j); ctx.lineTo(800,j); ctx.stroke(); }
+
+            // Vẽ bảng xếp hạng
+            let scores = [];
+
+            // 1. Vẽ người chơi
+            for (let id in state.players) {
+                const p = state.players[id];
+                scores.push({name: p.name, score: p.score});
+
+                if (id === socket.id) {
+                    myPlayer = p;
+                    hpSpan.innerText = Math.max(0, p.hp);
+                    deadMsg.style.display = p.hp <= 0 ? 'block' : 'none';
+                }
+
+                if (p.hp > 0) {
+                    // Vẽ thân
+                    ctx.fillStyle = p.color;
+                    ctx.shadowBlur = 15;
+                    ctx.shadowColor = p.color;
+                    ctx.fillRect(p.x, p.y, 30, 30);
+                    ctx.shadowBlur = 0;
+
+                    // Vẽ viền nếu là bản thân
+                    if (id === socket.id) {
+                        ctx.strokeStyle = "white";
+                        ctx.lineWidth = 2;
+                        ctx.strokeRect(p.x, p.y, 30, 30);
+                    }
+
+                    // Vẽ tên
+                    ctx.fillStyle = "white";
+                    ctx.font = "12px Arial";
+                    ctx.textAlign = "center";
+                    ctx.fillText(p.score, p.x + 15, p.y - 20);
+
+                    // Vẽ thanh máu
+                    ctx.fillStyle = "red";
+                    ctx.fillRect(p.x, p.y - 10, 30, 5);
+                    ctx.fillStyle = "#0f0";
+                    ctx.fillRect(p.x, p.y - 10, (p.hp / 100) * 30, 5);
+                }
+            }
+
+            // 2. Vẽ đạn
+            ctx.fillStyle = "#ffeb3b";
+            for (let b of state.bullets) {
+                ctx.beginPath();
+                ctx.arc(b.x, b.y, 5, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            // Cập nhật Leaderboard HTML
+            scores.sort((a, b) => b.score - a.score);
+            leaderboard.innerHTML = scores.slice(0, 5).map(s => `${s.name}: ${s.score}`).join('<br>');
+        });
+
+        // Hiệu ứng rung màn hình khi trúng đạn
+        socket.on('hit', () => {
+            canvas.style.transform = `translate(${Math.random()*10-5}px, ${Math.random()*10-5}px)`;
+            setTimeout(() => canvas.style.transform = "none", 100);
+        });
+    </script>
+</body>
+</html>
