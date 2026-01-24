@@ -1,26 +1,52 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>JS Battle Arena</title>
+    <title>JS Battle Mobile</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0">
     <style>
         body { 
-            margin: 0; background: #111; color: white; 
-            font-family: 'Courier New', Courier, monospace;
-            display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh;
+            margin: 0; background: #000; color: white; overflow: hidden; font-family: sans-serif;
+            touch-action: none; /* Chặn zoom/scroll trên mobile */
         }
-        #gameContainer { position: relative; box-shadow: 0 0 20px rgba(0,255,0,0.2); }
-        canvas { background: #1a1a1a; border: 2px solid #444; cursor: crosshair; }
-        #ui { position: absolute; top: 10px; left: 10px; pointer-events: none; }
-        #leaderboard { position: absolute; top: 10px; right: 10px; text-align: right; pointer-events: none; }
-        .dead-screen { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 40px; color: red; display: none; font-weight: bold; text-shadow: 2px 2px 0 #000; }
+        #gameContainer { position: relative; width: 100vw; height: 100vh; display: flex; justify-content: center; align-items: center; }
+        canvas { background: #1a1a1a; border: 2px solid #444; max-width: 100%; max-height: 100%; }
+        
+        /* UI Overlay */
+        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+        #hp-bar { position: absolute; top: 10px; left: 10px; font-size: 20px; font-weight: bold; text-shadow: 1px 1px 0 #000; }
+        #leaderboard { position: absolute; top: 10px; right: 10px; text-align: right; font-size: 14px; }
+        
+        /* Mobile Controls */
+        .joystick-zone {
+            position: absolute; bottom: 20px; width: 120px; height: 120px;
+            background: rgba(255, 255, 255, 0.1); border-radius: 50%; pointer-events: auto;
+            display: none; /* Ẩn trên PC */
+        }
+        .stick {
+            position: absolute; top: 50%; left: 50%; width: 50px; height: 50px;
+            background: rgba(255, 255, 255, 0.5); border-radius: 50%;
+            transform: translate(-50%, -50%);
+        }
+        #stick-left { left: 20px; }
+        #stick-right { right: 20px; }
+
+        /* Chỉ hiện joystick trên màn hình nhỏ */
+        @media (max-width: 1024px) {
+            .joystick-zone { display: block; }
+        }
     </style>
 </head>
 <body>
     <div id="gameContainer">
-        <canvas id="ctx" width="800" height="600"></canvas>
-        <div id="ui">Health: <span id="hpVal">100</span>%</div>
-        <div id="leaderboard"></div>
-        <div id="deadMsg" class="dead-screen">YOU DIED<br><span style="font-size:20px; color:white">Respawning...</span></div>
+        <canvas id="ctx" width="1000" height="800"></canvas>
+        
+        <div id="ui-layer">
+            <div id="hp-bar">HP: <span id="hpVal" style="color:#0f0">100</span>%</div>
+            <div id="leaderboard"></div>
+            
+            <div id="stick-left" class="joystick-zone"><div class="stick"></div></div>
+            <div id="stick-right" class="joystick-zone"><div class="stick" style="background:rgba(255,0,0,0.5)"></div></div>
+        </div>
     </div>
 
     <script src="/socket.io/socket.io.js"></script>
@@ -29,119 +55,168 @@
         const canvas = document.getElementById("ctx");
         const ctx = canvas.getContext("2d");
         const hpSpan = document.getElementById("hpVal");
-        const deadMsg = document.getElementById("deadMsg");
         const leaderboard = document.getElementById("leaderboard");
 
-        // Trạng thái bàn phím
+        // --- INPUT HANDLING ---
         let movement = { up: false, down: false, left: false, right: false };
         let mouse = { x: 0, y: 0 };
+        let isMobile = false;
 
-        // INPUT: Bàn phím
+        // PC: Keyboard & Mouse
         document.addEventListener('keydown', (e) => {
             if(e.code === 'KeyW' || e.key === 'ArrowUp') movement.up = true;
             if(e.code === 'KeyS' || e.key === 'ArrowDown') movement.down = true;
             if(e.code === 'KeyA' || e.key === 'ArrowLeft') movement.left = true;
             if(e.code === 'KeyD' || e.key === 'ArrowRight') movement.right = true;
         });
-        document.addEventListener('keyup', (e) => {
-            if(e.code === 'KeyW' || e.key === 'ArrowUp') movement.up = false;
-            if(e.code === 'KeyS' || e.key === 'ArrowDown') movement.down = false;
-            if(e.code === 'KeyA' || e.key === 'ArrowLeft') movement.left = false;
-            if(e.code === 'KeyD' || e.key === 'ArrowRight') movement.right = false;
-        });
+        document.addEventListener('keyup', (e) => handleKey(e, false));
+        function handleKey(e, state) {
+             // Logic keyup tương tự
+             if(e.code === 'KeyW' || e.key === 'ArrowUp') movement.up = state;
+             if(e.code === 'KeyS' || e.key === 'ArrowDown') movement.down = state;
+             if(e.code === 'KeyA' || e.key === 'ArrowLeft') movement.left = state;
+             if(e.code === 'KeyD' || e.key === 'ArrowRight') movement.right = state;
+        }
 
-        // INPUT: Chuột (để ngắm và bắn)
         canvas.addEventListener('mousemove', (e) => {
             const rect = canvas.getBoundingClientRect();
-            mouse.x = e.clientX - rect.left;
-            mouse.y = e.clientY - rect.top;
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            mouse.x = (e.clientX - rect.left) * scaleX;
+            mouse.y = (e.clientY - rect.top) * scaleY;
         });
-
         canvas.addEventListener('mousedown', () => {
-            // Tính góc bắn từ tâm nhân vật
             if (myPlayer) {
-                const angle = Math.atan2(mouse.y - (myPlayer.y + 15), mouse.x - (myPlayer.x + 15));
+                const angle = Math.atan2(mouse.y - (myPlayer.y+15), mouse.x - (myPlayer.x+15));
                 socket.emit('shoot', angle);
             }
         });
 
-        // Gửi di chuyển liên tục (60 lần/s)
-        setInterval(() => {
-            socket.emit('move', movement);
-        }, 1000 / 60);
+        // --- MOBILE TOUCH LOGIC ---
+        const leftZone = document.getElementById('stick-left');
+        const rightZone = document.getElementById('stick-right');
+        let shootInterval = null;
 
+        function handleJoystick(zone, callback) {
+            const stick = zone.querySelector('.stick');
+            const maxDist = 35; // Bán kính di chuyển
+
+            zone.addEventListener('touchstart', (e) => { isMobile = true; processMove(e); });
+            zone.addEventListener('touchmove', (e) => { e.preventDefault(); processMove(e); });
+            zone.addEventListener('touchend', (e) => {
+                stick.style.transform = `translate(-50%, -50%)`;
+                callback(0, 0, false); // Dừng
+            });
+
+            function processMove(e) {
+                const rect = zone.getBoundingClientRect();
+                const touch = e.targetTouches[0];
+                const centerX = rect.left + rect.width / 2;
+                const centerY = rect.top + rect.height / 2;
+                
+                let dx = touch.clientX - centerX;
+                let dy = touch.clientY - centerY;
+                const dist = Math.sqrt(dx*dx + dy*dy);
+                
+                // Giới hạn phạm vi stick
+                if (dist > maxDist) {
+                    dx = (dx / dist) * maxDist;
+                    dy = (dy / dist) * maxDist;
+                }
+
+                stick.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+                callback(dx, dy, true);
+            }
+        }
+
+        // Joystick Trái: Di chuyển
+        handleJoystick(leftZone, (dx, dy, active) => {
+            if (!active) {
+                movement = { up: false, down: false, left: false, right: false };
+            } else {
+                movement.up = dy < -10;
+                movement.down = dy > 10;
+                movement.left = dx < -10;
+                movement.right = dx > 10;
+            }
+        });
+
+        // Joystick Phải: Bắn
+        handleJoystick(rightZone, (dx, dy, active) => {
+            if (active) {
+                const angle = Math.atan2(dy, dx);
+                if (!shootInterval) {
+                    // Bắn liên tục khi giữ
+                    socket.emit('shoot', angle);
+                    shootInterval = setInterval(() => socket.emit('shoot', angle), 200);
+                }
+            } else {
+                clearInterval(shootInterval);
+                shootInterval = null;
+            }
+        });
+
+        // Gửi di chuyển server
+        setInterval(() => socket.emit('move', movement), 1000 / 60);
+
+        // --- RENDERING ---
         let myPlayer = null;
-
-        // NHẬN DỮ LIỆU TỪ SERVER
         socket.on('state', (state) => {
-            ctx.clearRect(0, 0, 800, 600);
-            
-            // Vẽ lưới nền (Grid) cho dễ nhìn
-            ctx.strokeStyle = '#333';
-            ctx.lineWidth = 1;
-            for(let i=0; i<800; i+=50) { ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,600); ctx.stroke(); }
-            for(let j=0; j<600; j+=50) { ctx.beginPath(); ctx.moveTo(0,j); ctx.lineTo(800,j); ctx.stroke(); }
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            // Vẽ bảng xếp hạng
+            // Vẽ Item
+            for(let item of state.items) {
+                ctx.beginPath();
+                ctx.arc(item.x, item.y, 10, 0, Math.PI*2);
+                ctx.fillStyle = item.type === 'health' ? '#ff4444' : '#4444ff';
+                ctx.fill();
+                ctx.shadowBlur = 10; ctx.shadowColor = ctx.fillStyle; ctx.fill(); ctx.shadowBlur = 0;
+            }
+
+            // Vẽ Player
             let scores = [];
-
-            // 1. Vẽ người chơi
             for (let id in state.players) {
                 const p = state.players[id];
                 scores.push({name: p.name, score: p.score});
-
                 if (id === socket.id) {
                     myPlayer = p;
                     hpSpan.innerText = Math.max(0, p.hp);
-                    deadMsg.style.display = p.hp <= 0 ? 'block' : 'none';
+                }
+                
+                // Hiệu ứng tốc độ (Vệt mờ)
+                if (p.speed > 5) {
+                    ctx.fillStyle = "rgba(0, 255, 255, 0.3)";
+                    ctx.fillRect(p.x - 5, p.y - 5, 40, 40);
                 }
 
-                if (p.hp > 0) {
-                    // Vẽ thân
-                    ctx.fillStyle = p.color;
-                    ctx.shadowBlur = 15;
-                    ctx.shadowColor = p.color;
-                    ctx.fillRect(p.x, p.y, 30, 30);
-                    ctx.shadowBlur = 0;
-
-                    // Vẽ viền nếu là bản thân
-                    if (id === socket.id) {
-                        ctx.strokeStyle = "white";
-                        ctx.lineWidth = 2;
-                        ctx.strokeRect(p.x, p.y, 30, 30);
-                    }
-
-                    // Vẽ tên
-                    ctx.fillStyle = "white";
-                    ctx.font = "12px Arial";
-                    ctx.textAlign = "center";
-                    ctx.fillText(p.score, p.x + 15, p.y - 20);
-
-                    // Vẽ thanh máu
-                    ctx.fillStyle = "red";
-                    ctx.fillRect(p.x, p.y - 10, 30, 5);
-                    ctx.fillStyle = "#0f0";
-                    ctx.fillRect(p.x, p.y - 10, (p.hp / 100) * 30, 5);
-                }
+                ctx.fillStyle = p.color;
+                ctx.fillRect(p.x, p.y, 30, 30);
+                
+                // Thanh máu
+                ctx.fillStyle = "red"; ctx.fillRect(p.x, p.y - 10, 30, 5);
+                ctx.fillStyle = "#0f0"; ctx.fillRect(p.x, p.y - 10, (p.hp / 100) * 30, 5);
+                
+                // Tên
+                ctx.fillStyle = "white"; ctx.font = "10px Arial"; ctx.textAlign = "center";
+                ctx.fillText(p.name, p.x + 15, p.y - 15);
             }
 
-            // 2. Vẽ đạn
-            ctx.fillStyle = "#ffeb3b";
+            // Vẽ Đạn
+            ctx.fillStyle = "#ffff00";
             for (let b of state.bullets) {
-                ctx.beginPath();
-                ctx.arc(b.x, b.y, 5, 0, Math.PI * 2);
-                ctx.fill();
+                ctx.beginPath(); ctx.arc(b.x, b.y, 5, 0, Math.PI * 2); ctx.fill();
             }
 
-            // Cập nhật Leaderboard HTML
+            // Cập nhật BXH
             scores.sort((a, b) => b.score - a.score);
             leaderboard.innerHTML = scores.slice(0, 5).map(s => `${s.name}: ${s.score}`).join('<br>');
         });
 
-        // Hiệu ứng rung màn hình khi trúng đạn
-        socket.on('hit', () => {
-            canvas.style.transform = `translate(${Math.random()*10-5}px, ${Math.random()*10-5}px)`;
-            setTimeout(() => canvas.style.transform = "none", 100);
+        socket.on('pickup', (type) => {
+            // Hiệu ứng ăn item (chớp màn hình nhẹ)
+            const color = type === 'health' ? 'rgba(255,0,0,0.2)' : 'rgba(0,0,255,0.2)';
+            document.body.style.boxShadow = `inset 0 0 50px ${color}`;
+            setTimeout(() => document.body.style.boxShadow = 'none', 300);
         });
     </script>
 </body>
