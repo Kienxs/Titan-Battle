@@ -1,0 +1,31 @@
+<script src="/socket.io/socket.io.js"></script>
+<script>
+    const socket = io(); // Tự động kết nối tới server hiện tại
+    const canvas = document.createElement("canvas");
+    canvas.width = 800; canvas.height = 500;
+    document.body.appendChild(canvas);
+    const ctx = canvas.getContext("2d");
+
+    let players = {};
+    let myPos = { x: 400, y: 250 };
+
+    socket.on('update', (data) => { players = data; });
+
+    window.addEventListener("keydown", (e) => {
+        if (e.key === "ArrowUp") myPos.y -= 10;
+        if (e.key === "ArrowDown") myPos.y += 10;
+        if (e.key === "ArrowLeft") myPos.x -= 10;
+        if (e.key === "ArrowRight") myPos.x += 10;
+        socket.emit('move', myPos);
+    });
+
+    function draw() {
+        ctx.clearRect(0, 0, 800, 500);
+        for (let id in players) {
+            ctx.fillStyle = players[id].color;
+            ctx.fillRect(players[id].x, players[id].y, 30, 30);
+        }
+        requestAnimationFrame(draw);
+    }
+    draw();
+</script>
