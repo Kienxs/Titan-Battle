@@ -3,7 +3,7 @@ const app = express();
 const http = require('http').createServer(app);
 const io = require('socket.io')(http, { cors: { origin: "*" } });
 
-app.get('/', (req, res) => { res.sendFile(__dirname + '/index.html'); });
+app.get('/', (req, res) => { res.sendFile(__dirname + '/public'); });
 
 // --- CẤU HÌNH GAME ---
 const MAP_W = 1000;
@@ -11,7 +11,7 @@ const MAP_H = 800;
 const PLAYER_SIZE = 30;
 const BULLET_SPEED = 12;
 const BASE_SPEED = 5;
-const RESPAWN_TIME_MS = 3000; // Thời gian cooldown hồi sinh (3 giây)
+const RESPAWN_TIME_MS = 5000; // Thời gian cooldown hồi sinh (5 giây)
 
 const HIT_RADIUS_SQ = Math.pow(PLAYER_SIZE / 2 + 5, 2); 
 const ITEM_RADIUS_SQ = Math.pow(PLAYER_SIZE, 2);
