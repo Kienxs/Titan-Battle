@@ -59,23 +59,29 @@
 
         // --- INPUT HANDLING ---
         let movement = { up: false, down: false, left: false, right: false };
+        let lastMovementStr = "";
         let mouse = { x: 0, y: 0 };
         let isMobile = false;
 
+        // Tối ưu mạng: Chỉ gửi khi trạng thái di chuyển thay đổi
+        function sendMoveIfChanged() {
+            const currentStr = JSON.stringify(movement);
+            if (currentStr !== lastMovementStr) {
+                socket.emit('move', movement);
+                lastMovementStr = currentStr;
+            }
+        }
+
         // PC: Keyboard & Mouse
-        document.addEventListener('keydown', (e) => {
-            if(e.code === 'KeyW' || e.key === 'ArrowUp') movement.up = true;
-            if(e.code === 'KeyS' || e.key === 'ArrowDown') movement.down = true;
-            if(e.code === 'KeyA' || e.key === 'ArrowLeft') movement.left = true;
-            if(e.code === 'KeyD' || e.key === 'ArrowRight') movement.right = true;
-        });
+        document.addEventListener('keydown', (e) => handleKey(e, true));
         document.addEventListener('keyup', (e) => handleKey(e, false));
+        
         function handleKey(e, state) {
-             // Logic keyup tương tự
              if(e.code === 'KeyW' || e.key === 'ArrowUp') movement.up = state;
              if(e.code === 'KeyS' || e.key === 'ArrowDown') movement.down = state;
              if(e.code === 'KeyA' || e.key === 'ArrowLeft') movement.left = state;
              if(e.code === 'KeyD' || e.key === 'ArrowRight') movement.right = state;
+             sendMoveIfChanged();
         }
 
         canvas.addEventListener('mousemove', (e) => {
@@ -85,6 +91,7 @@
             mouse.x = (e.clientX - rect.left) * scaleX;
             mouse.y = (e.clientY - rect.top) * scaleY;
         });
+        
         canvas.addEventListener('mousedown', () => {
             if (myPlayer) {
                 const angle = Math.atan2(mouse.y - (myPlayer.y+15), mouse.x - (myPlayer.x+15));
@@ -99,13 +106,13 @@
 
         function handleJoystick(zone, callback) {
             const stick = zone.querySelector('.stick');
-            const maxDist = 35; // Bán kính di chuyển
+            const maxDist = 35; 
 
             zone.addEventListener('touchstart', (e) => { isMobile = true; processMove(e); });
             zone.addEventListener('touchmove', (e) => { e.preventDefault(); processMove(e); });
             zone.addEventListener('touchend', (e) => {
                 stick.style.transform = `translate(-50%, -50%)`;
-                callback(0, 0, false); // Dừng
+                callback(0, 0, false); 
             });
 
             function processMove(e) {
@@ -118,7 +125,6 @@
                 let dy = touch.clientY - centerY;
                 const dist = Math.sqrt(dx*dx + dy*dy);
                 
-                // Giới hạn phạm vi stick
                 if (dist > maxDist) {
                     dx = (dx / dist) * maxDist;
                     dy = (dy / dist) * maxDist;
@@ -139,6 +145,7 @@
                 movement.left = dx < -10;
                 movement.right = dx > 10;
             }
+            sendMoveIfChanged();
         });
 
         // Joystick Phải: Bắn
@@ -146,7 +153,6 @@
             if (active) {
                 const angle = Math.atan2(dy, dx);
                 if (!shootInterval) {
-                    // Bắn liên tục khi giữ
                     socket.emit('shoot', angle);
                     shootInterval = setInterval(() => socket.emit('shoot', angle), 200);
                 }
@@ -155,9 +161,6 @@
                 shootInterval = null;
             }
         });
-
-        // Gửi di chuyển server
-        setInterval(() => socket.emit('move', movement), 1000 / 60);
 
         // --- RENDERING ---
         let myPlayer = null;
@@ -213,7 +216,6 @@
         });
 
         socket.on('pickup', (type) => {
-            // Hiệu ứng ăn item (chớp màn hình nhẹ)
             const color = type === 'health' ? 'rgba(255,0,0,0.2)' : 'rgba(0,0,255,0.2)';
             document.body.style.boxShadow = `inset 0 0 50px ${color}`;
             setTimeout(() => document.body.style.boxShadow = 'none', 300);
