@@ -3,47 +3,13 @@
 <head>
     <title>JS Battle Mobile</title>
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0">
-    <style>
-        body { 
-            margin: 0; background: #000; color: white; overflow: hidden; font-family: sans-serif;
-            touch-action: none; /* Chặn zoom/scroll trên mobile */
-        }
-        #gameContainer { position: relative; width: 100vw; height: 100vh; display: flex; justify-content: center; align-items: center; }
-        canvas { background: #1a1a1a; border: 2px solid #444; max-width: 100%; max-height: 100%; }
-        
-        /* UI Overlay */
-        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
-        #hp-bar { position: absolute; top: 10px; left: 10px; font-size: 20px; font-weight: bold; text-shadow: 1px 1px 0 #000; }
-        #leaderboard { position: absolute; top: 10px; right: 10px; text-align: right; font-size: 14px; }
-        
-        /* Mobile Controls */
-        .joystick-zone {
-            position: absolute; bottom: 20px; width: 120px; height: 120px;
-            background: rgba(255, 255, 255, 0.1); border-radius: 50%; pointer-events: auto;
-            display: none; /* Ẩn trên PC */
-        }
-        .stick {
-            position: absolute; top: 50%; left: 50%; width: 50px; height: 50px;
-            background: rgba(255, 255, 255, 0.5); border-radius: 50%;
-            transform: translate(-50%, -50%);
-        }
-        #stick-left { left: 20px; }
-        #stick-right { right: 20px; }
-
-        /* Chỉ hiện joystick trên màn hình nhỏ */
-        @media (max-width: 1024px) {
-            .joystick-zone { display: block; }
-        }
-    </style>
 </head>
 <body>
     <div id="gameContainer">
         <canvas id="ctx" width="1000" height="800"></canvas>
-        
         <div id="ui-layer">
             <div id="hp-bar">HP: <span id="hpVal" style="color:#0f0">100</span>%</div>
             <div id="leaderboard"></div>
-            
             <div id="stick-left" class="joystick-zone"><div class="stick"></div></div>
             <div id="stick-right" class="joystick-zone"><div class="stick" style="background:rgba(255,0,0,0.5)"></div></div>
         </div>
@@ -57,13 +23,17 @@
         const hpSpan = document.getElementById("hpVal");
         const leaderboard = document.getElementById("leaderboard");
 
-        // --- INPUT HANDLING ---
         let movement = { up: false, down: false, left: false, right: false };
         let lastMovementStr = "";
         let mouse = { x: 0, y: 0 };
         let isMobile = false;
+        let mapWalls = []; // Chứa dữ liệu tường chắn
 
-        // Tối ưu mạng: Chỉ gửi khi trạng thái di chuyển thay đổi
+        // Nhận dữ liệu tường ngay khi kết nối
+        socket.on('init', (data) => {
+            mapWalls = data.walls;
+        });
+
         function sendMoveIfChanged() {
             const currentStr = JSON.stringify(movement);
             if (currentStr !== lastMovementStr) {
@@ -72,7 +42,6 @@
             }
         }
 
-        // PC: Keyboard & Mouse
         document.addEventListener('keydown', (e) => handleKey(e, true));
         document.addEventListener('keyup', (e) => handleKey(e, false));
         
@@ -93,13 +62,12 @@
         });
         
         canvas.addEventListener('mousedown', () => {
-            if (myPlayer) {
+            if (myPlayer && !myPlayer.dead) {
                 const angle = Math.atan2(mouse.y - (myPlayer.y+15), mouse.x - (myPlayer.x+15));
                 socket.emit('shoot', angle);
             }
         });
 
-        // --- MOBILE TOUCH LOGIC ---
         const leftZone = document.getElementById('stick-left');
         const rightZone = document.getElementById('stick-right');
         let shootInterval = null;
@@ -120,7 +88,6 @@
                 const touch = e.targetTouches[0];
                 const centerX = rect.left + rect.width / 2;
                 const centerY = rect.top + rect.height / 2;
-                
                 let dx = touch.clientX - centerX;
                 let dy = touch.clientY - centerY;
                 const dist = Math.sqrt(dx*dx + dy*dy);
@@ -129,28 +96,23 @@
                     dx = (dx / dist) * maxDist;
                     dy = (dy / dist) * maxDist;
                 }
-
                 stick.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
                 callback(dx, dy, true);
             }
         }
 
-        // Joystick Trái: Di chuyển
         handleJoystick(leftZone, (dx, dy, active) => {
             if (!active) {
                 movement = { up: false, down: false, left: false, right: false };
             } else {
-                movement.up = dy < -10;
-                movement.down = dy > 10;
-                movement.left = dx < -10;
-                movement.right = dx > 10;
+                movement.up = dy < -10; movement.down = dy > 10;
+                movement.left = dx < -10; movement.right = dx > 10;
             }
             sendMoveIfChanged();
         });
 
-        // Joystick Phải: Bắn
         handleJoystick(rightZone, (dx, dy, active) => {
-            if (active) {
+            if (active && myPlayer && !myPlayer.dead) {
                 const angle = Math.atan2(dy, dx);
                 if (!shootInterval) {
                     socket.emit('shoot', angle);
@@ -162,18 +124,36 @@
             }
         });
 
-        // --- RENDERING ---
         let myPlayer = null;
         socket.on('state', (state) => {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+            // Vẽ Tường (Walls)
+            ctx.fillStyle = "#555";
+            for(let w of mapWalls) {
+                ctx.fillRect(w.x, w.y, w.w, w.h);
+                // Viền tường
+                ctx.strokeStyle = "#333";
+                ctx.strokeRect(w.x, w.y, w.w, w.h);
+            }
+
             // Vẽ Item
             for(let item of state.items) {
-                ctx.beginPath();
-                ctx.arc(item.x, item.y, 10, 0, Math.PI*2);
+                ctx.beginPath(); ctx.arc(item.x, item.y, 10, 0, Math.PI*2);
                 ctx.fillStyle = item.type === 'health' ? '#ff4444' : '#4444ff';
                 ctx.fill();
                 ctx.shadowBlur = 10; ctx.shadowColor = ctx.fillStyle; ctx.fill(); ctx.shadowBlur = 0;
+            }
+
+            // Vẽ Boom (Mìn)
+            for(let bomb of state.bombs) {
+                ctx.beginPath(); ctx.arc(bomb.x, bomb.y, 12, 0, Math.PI*2);
+                ctx.fillStyle = "#222"; // Màu đen của quả bom
+                ctx.fill();
+                ctx.beginPath(); ctx.arc(bomb.x, bomb.y, 4, 0, Math.PI*2);
+                ctx.fillStyle = "orange"; // Lõi phát sáng
+                ctx.fill();
+                ctx.shadowBlur = 15; ctx.shadowColor = "red"; ctx.fill(); ctx.shadowBlur = 0;
             }
 
             // Vẽ Player
@@ -186,7 +166,8 @@
                     hpSpan.innerText = Math.max(0, p.hp);
                 }
                 
-                // Hiệu ứng tốc độ (Vệt mờ)
+                if (p.dead) continue; // Bỏ qua không vẽ người đã chết
+
                 if (p.speed > 5) {
                     ctx.fillStyle = "rgba(0, 255, 255, 0.3)";
                     ctx.fillRect(p.x - 5, p.y - 5, 40, 40);
@@ -195,11 +176,9 @@
                 ctx.fillStyle = p.color;
                 ctx.fillRect(p.x, p.y, 30, 30);
                 
-                // Thanh máu
                 ctx.fillStyle = "red"; ctx.fillRect(p.x, p.y - 10, 30, 5);
                 ctx.fillStyle = "#0f0"; ctx.fillRect(p.x, p.y - 10, (p.hp / 100) * 30, 5);
                 
-                // Tên
                 ctx.fillStyle = "white"; ctx.font = "10px Arial"; ctx.textAlign = "center";
                 ctx.fillText(p.name, p.x + 15, p.y - 15);
             }
@@ -210,15 +189,36 @@
                 ctx.beginPath(); ctx.arc(b.x, b.y, 5, 0, Math.PI * 2); ctx.fill();
             }
 
-            // Cập nhật BXH
             scores.sort((a, b) => b.score - a.score);
             leaderboard.innerHTML = scores.slice(0, 5).map(s => `${s.name}: ${s.score}`).join('<br>');
+
+            // UI Màn hình chờ hồi sinh
+            if (myPlayer && myPlayer.dead) {
+                const timeLeft = Math.max(0, Math.ceil((myPlayer.respawnTime - Date.now()) / 1000));
+                ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                
+                ctx.fillStyle = "#ff4444";
+                ctx.font = "bold 40px Arial";
+                ctx.textAlign = "center";
+                ctx.fillText("BẠN ĐÃ TỬ TRẬN!", canvas.width / 2, canvas.height / 2 - 20);
+                
+                ctx.fillStyle = "white";
+                ctx.font = "20px Arial";
+                ctx.fillText(`Hồi sinh sau: ${timeLeft}s`, canvas.width / 2, canvas.height / 2 + 30);
+            }
         });
 
         socket.on('pickup', (type) => {
             const color = type === 'health' ? 'rgba(255,0,0,0.2)' : 'rgba(0,0,255,0.2)';
             document.body.style.boxShadow = `inset 0 0 50px ${color}`;
             setTimeout(() => document.body.style.boxShadow = 'none', 300);
+        });
+
+        socket.on('explosion', () => {
+            // Hiệu ứng nháy màn hình khi đạp mìn
+            document.body.style.background = "#500";
+            setTimeout(() => document.body.style.background = "#000", 100);
         });
     </script>
 </body>
