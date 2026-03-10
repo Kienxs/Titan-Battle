@@ -3,7 +3,7 @@ const app = express();
 const http = require('http').createServer(app);
 const io = require('socket.io')(http, { cors: { origin: "*" } });
 
-app.get('/', (req, res) => { res.sendFile(__dirname + '/public'); });
+app.use(express.static(__dirname + '/public')); // Phục vụ file tĩnh trong thư mục public
 
 // --- CẤU HÌNH GAME ---
 const MAP_W = 1000;
@@ -11,17 +11,16 @@ const MAP_H = 800;
 const PLAYER_SIZE = 30;
 const BULLET_SPEED = 12;
 const BASE_SPEED = 5;
-const RESPAWN_TIME_MS = 5000; // Thời gian cooldown hồi sinh (5 giây)
+const RESPAWN_TIME_MS = 5000; 
 
 const HIT_RADIUS_SQ = Math.pow(PLAYER_SIZE / 2 + 5, 2); 
 const ITEM_RADIUS_SQ = Math.pow(PLAYER_SIZE, 2);
 const BOMB_RADIUS_SQ = Math.pow(PLAYER_SIZE / 2 + 12, 2);
 
-// Danh sách vật chắn (Obstacles)
 const walls = [
     { x: 200, y: 150, w: 150, h: 40 },
     { x: 650, y: 150, w: 150, h: 40 },
-    { x: 450, y: 350, w: 100, h: 100 }, // Khối vuông ở giữa
+    { x: 450, y: 350, w: 100, h: 100 }, 
     { x: 200, y: 600, w: 40, h: 150 },
     { x: 760, y: 600, w: 40, h: 150 }
 ];
@@ -31,7 +30,6 @@ let bullets = [];
 let items = [];
 let bombs = [];
 
-// Hàm hỗ trợ kiểm tra va chạm Hình Chữ Nhật (AABB)
 function rectIntersect(x1, y1, w1, h1, x2, y2, w2, h2) {
     return x2 < x1 + w1 && x2 + w2 > x1 && y2 < y1 + h1 && y2 + h2 > y1;
 }
@@ -46,22 +44,31 @@ class Item {
 }
 
 io.on('connection', (socket) => {
-    // Gửi ngay danh sách vật chắn cho client mới
+    // Gửi map ngay khi họ vừa truy cập trang web (dù chưa nhập tên)
     socket.emit('init', { walls: walls });
 
-    players[socket.id] = {
-        x: Math.random() * (MAP_W - 50),
-        y: Math.random() * (MAP_H - 50),
-        color: `hsl(${Math.random() * 360}, 100%, 50%)`,
-        hp: 100,
-        score: 0,
-        name: "P-" + socket.id.substr(0, 3),
-        speed: BASE_SPEED,
-        speedTimer: 0,
-        moving: { up: false, down: false, left: false, right: false },
-        dead: false,
-        respawnTime: 0
-    };
+    // Lắng nghe sự kiện người chơi bấm "Vào Game"
+    socket.on('joinGame', (playerName) => {
+        console.log(`Player Joined: ${playerName} (${socket.id})`);
+        
+        // Cắt bớt tên nếu quá dài để tránh vỡ giao diện (max 12 ký tự)
+        let safeName = playerName.substring(0, 12);
+
+        // Tạo dữ liệu nhân vật
+        players[socket.id] = {
+            x: Math.random() * (MAP_W - 50),
+            y: Math.random() * (MAP_H - 50),
+            color: `hsl(${Math.random() * 360}, 100%, 50%)`,
+            hp: 100,
+            score: 0,
+            name: safeName, // Sử dụng tên vừa nhập
+            speed: BASE_SPEED,
+            speedTimer: 0,
+            moving: { up: false, down: false, left: false, right: false },
+            dead: false,
+            respawnTime: 0
+        };
+    });
 
     socket.on('move', (dir) => {
         if (players[socket.id]) players[socket.id].moving = dir;
@@ -69,7 +76,7 @@ io.on('connection', (socket) => {
 
     socket.on('shoot', (angle) => {
         const p = players[socket.id];
-        if (!p || p.hp <= 0 || p.dead) return; // Chết thì không được bắn
+        if (!p || p.hp <= 0 || p.dead) return; 
         bullets.push({
             x: p.x + PLAYER_SIZE/2,
             y: p.y + PLAYER_SIZE/2,
@@ -79,16 +86,18 @@ io.on('connection', (socket) => {
         });
     });
 
-    socket.on('disconnect', () => { delete players[socket.id]; });
+    socket.on('disconnect', () => { 
+        console.log('Player left: ' + socket.id);
+        delete players[socket.id]; 
+    });
 });
 
 function handlePlayerDeath(p, killerId) {
     p.hp = 0;
     p.dead = true;
     p.respawnTime = Date.now() + RESPAWN_TIME_MS;
-    p.moving = { up: false, down: false, left: false, right: false }; // Khóa di chuyển
+    p.moving = { up: false, down: false, left: false, right: false }; 
     
-    // Cộng điểm cho người giết (nếu có)
     if (killerId && players[killerId] && killerId !== "BOMB") {
         players[killerId].score++;
     }
@@ -96,10 +105,8 @@ function handlePlayerDeath(p, killerId) {
 
 // GAME LOOP (60 FPS)
 setInterval(() => {
-    // Sinh Item
     if (items.length < 5 && Math.random() < 0.02) items.push(new Item());
 
-    // Sinh Boom ngẫu nhiên
     if (bombs.length < 4 && Math.random() < 0.005) {
         bombs.push({
             x: Math.random() * (MAP_W - 40) + 20,
@@ -107,11 +114,9 @@ setInterval(() => {
         });
     }
 
-    // Xử lý Người chơi
     for (let id in players) {
         let p = players[id];
         
-        // Logic Hồi Sinh (Respawn)
         if (p.dead) {
             if (Date.now() >= p.respawnTime) {
                 p.dead = false;
@@ -120,34 +125,29 @@ setInterval(() => {
                 p.y = Math.random() * (MAP_H - 50);
                 p.speed = BASE_SPEED;
             }
-            continue; // Nếu đang chết thì bỏ qua việc di chuyển và xét va chạm
+            continue; 
         }
         
-        // --- Xử lý di chuyển CÓ va chạm với tường ---
         let nextX = p.x;
         let nextY = p.y;
 
         if (p.moving.left) nextX = Math.max(0, p.x - p.speed);
         if (p.moving.right) nextX = Math.min(MAP_W - PLAYER_SIZE, p.x + p.speed);
         
-        // Kiểm tra va chạm trục X
         let collideX = walls.some(w => rectIntersect(nextX, p.y, PLAYER_SIZE, PLAYER_SIZE, w.x, w.y, w.w, w.h));
-        if (!collideX) p.x = nextX; // Chỉ di chuyển nếu không chạm tường
+        if (!collideX) p.x = nextX; 
 
         if (p.moving.up) nextY = Math.max(0, p.y - p.speed);
         if (p.moving.down) nextY = Math.min(MAP_H - PLAYER_SIZE, p.y + p.speed);
 
-        // Kiểm tra va chạm trục Y
         let collideY = walls.some(w => rectIntersect(p.x, nextY, PLAYER_SIZE, PLAYER_SIZE, w.x, w.y, w.w, w.h));
         if (!collideY) p.y = nextY;
 
-        // Giảm thời gian buff tốc độ
         if (p.speedTimer > 0) {
             p.speedTimer--;
             if (p.speedTimer <= 0) p.speed = BASE_SPEED;
         }
 
-        // Kiểm tra ăn Item
         for (let i = items.length - 1; i >= 0; i--) {
             let it = items[i];
             let dx = p.x - it.x; let dy = p.y - it.y;
@@ -159,13 +159,12 @@ setInterval(() => {
             }
         }
 
-        // Kiểm tra đạp Boom
         for (let i = bombs.length - 1; i >= 0; i--) {
             let b = bombs[i];
             let dx = (p.x + PLAYER_SIZE/2) - b.x; 
             let dy = (p.y + PLAYER_SIZE/2) - b.y;
             if ((dx * dx + dy * dy) < BOMB_RADIUS_SQ) {
-                p.hp -= 50; // Trừ 50 máu khi đạp mìn
+                p.hp -= 50; 
                 bombs.splice(i, 1);
                 io.to(id).emit('explosion'); 
                 
@@ -176,24 +175,20 @@ setInterval(() => {
         }
     }
 
-    // Xử lý Đạn & Va chạm
     for (let i = bullets.length - 1; i >= 0; i--) {
         let b = bullets[i];
         b.x += b.vx;
         b.y += b.vy;
 
-        // Xóa đạn bay ra ngoài map
         if (b.x < 0 || b.x > MAP_W || b.y < 0 || b.y > MAP_H) {
             bullets.splice(i, 1); continue;
         }
 
-        // Va chạm Đạn với Tường
         let hitWall = walls.some(w => b.x >= w.x && b.x <= w.x + w.w && b.y >= w.y && b.y <= w.y + w.h);
         if (hitWall) {
             bullets.splice(i, 1); continue;
         }
 
-        // Va chạm Đạn với Player
         let bulletHitPlayer = false;
         for (let id in players) {
             let p = players[id];
@@ -216,7 +211,6 @@ setInterval(() => {
         if (bulletHitPlayer) bullets.splice(i, 1);
     }
 
-    // Nén Data gửi về Client
     let minPlayers = {};
     for (let id in players) {
         let p = players[id];
