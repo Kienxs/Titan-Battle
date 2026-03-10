@@ -90,8 +90,15 @@
             mouse.y = (e.clientY - rect.top) * scaleY;
         });
         
+        let lastClickShot = 0; 
+        const FIRE_COOLDOWN = 400; // 400 mili-giây cho mỗi viên
+
         canvas.addEventListener('mousedown', () => {
             if (hasJoined && myPlayer && !myPlayer.dead) {
+                // Kiểm tra xem đã qua thời gian hồi chiêu chưa
+                if (Date.now() - lastClickShot < FIRE_COOLDOWN) return; 
+                
+                lastClickShot = Date.now();
                 const angle = Math.atan2(mouse.y - (myPlayer.y+15), mouse.x - (myPlayer.x+15));
                 socket.emit('shoot', angle);
             }
@@ -141,12 +148,18 @@
             sendMoveIfChanged();
         });
 
+        let currentShootAngle = 0; 
+
         handleJoystick(rightZone, (dx, dy, active) => {
             if (active && hasJoined && myPlayer && !myPlayer.dead) {
-                const angle = Math.atan2(dy, dx);
+                currentShootAngle = Math.atan2(dy, dx); 
+                
                 if (!shootInterval) {
-                    socket.emit('shoot', angle);
-                    shootInterval = setInterval(() => socket.emit('shoot', angle), 200);
+                    socket.emit('shoot', currentShootAngle);
+                    // Tăng delay từ 200 lên 400 mili-giây
+                    shootInterval = setInterval(() => {
+                        socket.emit('shoot', currentShootAngle);
+                    }, FIRE_COOLDOWN);
                 }
             } else {
                 clearInterval(shootInterval);

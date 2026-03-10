@@ -13,6 +13,8 @@ const BULLET_SPEED = 12;
 const BASE_SPEED = 5;
 const RESPAWN_TIME_MS = 5000; 
 
+const FIRE_COOLDOWN_SERVER = 350;
+
 const HIT_RADIUS_SQ = Math.pow(PLAYER_SIZE / 2 + 5, 2); 
 const ITEM_RADIUS_SQ = Math.pow(PLAYER_SIZE, 2);
 const BOMB_RADIUS_SQ = Math.pow(PLAYER_SIZE / 2 + 12, 2);
@@ -66,7 +68,8 @@ io.on('connection', (socket) => {
             speedTimer: 0,
             moving: { up: false, down: false, left: false, right: false },
             dead: false,
-            respawnTime: 0
+            respawnTime: 0,
+            lastShot: 0
         };
     });
 
@@ -77,6 +80,13 @@ io.on('connection', (socket) => {
     socket.on('shoot', (angle) => {
         const p = players[socket.id];
         if (!p || p.hp <= 0 || p.dead) return; 
+
+        // SERVER CHẶN SPAM ĐẠN: Nếu bắn quá nhanh so với quy định thì lờ đi
+        if (Date.now() - p.lastShot < FIRE_COOLDOWN_SERVER) return;
+        
+        // Cập nhật lại thời gian bắn
+        p.lastShot = Date.now();
+
         bullets.push({
             x: p.x + PLAYER_SIZE/2,
             y: p.y + PLAYER_SIZE/2,
@@ -84,11 +94,6 @@ io.on('connection', (socket) => {
             vy: Math.sin(angle) * BULLET_SPEED,
             owner: socket.id
         });
-    });
-
-    socket.on('disconnect', () => { 
-        console.log('Player left: ' + socket.id);
-        delete players[socket.id]; 
     });
 });
 
