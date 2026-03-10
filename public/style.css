@@ -48,76 +48,64 @@ canvas {
     text-shadow: 1px 1px 0 #000; 
 }
 
-/* --- MÀN HÌNH NHẬP TÊN --- */
-#login-screen {
+/* --- KILL FEED (Ai giết ai) --- */
+#kill-feed {
     position: absolute;
-    top: 0; left: 0;
-    width: 100vw; height: 100vh;
-    background: rgba(0, 0, 0, 0.85);
+    top: 150px;
+    right: 10px;
     display: flex;
     flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    z-index: 1000; /* Nổi lên trên cùng */
-    pointer-events: auto; /* Cho phép click */
+    align-items: flex-end;
+    pointer-events: none;
 }
-
-#login-screen h1 {
-    color: #ffcc00;
-    text-shadow: 0 0 10px #ff0000;
-    margin-bottom: 20px;
-    font-size: 40px;
-}
-
-#playerName {
-    padding: 12px;
-    font-size: 18px;
-    border: 2px solid #555;
+.kill-msg {
+    background: rgba(0, 0, 0, 0.6);
+    padding: 5px 10px;
+    margin-bottom: 5px;
     border-radius: 5px;
-    background: #222;
-    color: white;
-    text-align: center;
-    outline: none;
-    width: 250px;
-    margin-bottom: 20px;
-}
-
-#playerName:focus {
-    border-color: #ffcc00;
-}
-
-#joinBtn {
-    padding: 12px 30px;
-    font-size: 20px;
+    font-size: 14px;
     font-weight: bold;
-    color: black;
-    background: #0f0;
-    border: none;
-    border-radius: 5px;
-    cursor: pointer;
-    box-shadow: 0 4px 0 #007700;
-    transition: all 0.1s;
+    animation: fadeOut 3s forwards; /* Tự động biến mất sau 3s */
+}
+@keyframes fadeOut {
+    0% { opacity: 1; transform: translateX(0); }
+    80% { opacity: 1; transform: translateX(0); }
+    100% { opacity: 0; transform: translateX(20px); }
 }
 
-#joinBtn:active {
-    box-shadow: 0 0px 0 #007700;
-    transform: translateY(4px);
+/* --- HIỆU ỨNG CHỮ DOUBLE/TRIPLE KILL --- */
+#announcement {
+    position: absolute;
+    top: 25%;
+    left: 50%;
+    transform: translate(-50%, -50%) scale(0.5);
+    opacity: 0;
+    font-size: 45px;
+    font-weight: bold;
+    color: #ffcc00;
+    text-shadow: 0 0 20px #ff0000, 3px 3px 0 #000;
+    pointer-events: none;
+    transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    z-index: 100;
+    text-align: center;
+    white-space: nowrap;
 }
+
+/* Màn hình đăng nhập */
+#login-screen {
+    position: absolute; top: 0; left: 0; width: 100vw; height: 100vh;
+    background: rgba(0, 0, 0, 0.85); display: flex; flex-direction: column;
+    justify-content: center; align-items: center; z-index: 1000; pointer-events: auto;
+}
+#login-screen h1 { color: #ffcc00; text-shadow: 0 0 10px #ff0000; margin-bottom: 20px; font-size: 40px; }
+#playerName { padding: 12px; font-size: 18px; border: 2px solid #555; border-radius: 5px; background: #222; color: white; text-align: center; outline: none; width: 250px; margin-bottom: 20px; }
+#playerName:focus { border-color: #ffcc00; }
+#joinBtn { padding: 12px 30px; font-size: 20px; font-weight: bold; color: black; background: #0f0; border: none; border-radius: 5px; cursor: pointer; box-shadow: 0 4px 0 #007700; transition: all 0.1s; }
+#joinBtn:active { box-shadow: 0 0px 0 #007700; transform: translateY(4px); }
 
 /* Joystick */
-.joystick-zone {
-    position: absolute; bottom: 20px; width: 120px; height: 120px;
-    background: rgba(255, 255, 255, 0.1); border-radius: 50%; pointer-events: auto;
-    display: none;
-}
-.stick {
-    position: absolute; top: 50%; left: 50%; width: 50px; height: 50px;
-    background: rgba(255, 255, 255, 0.5); border-radius: 50%;
-    transform: translate(-50%, -50%);
-}
+.joystick-zone { position: absolute; bottom: 20px; width: 120px; height: 120px; background: rgba(255, 255, 255, 0.1); border-radius: 50%; pointer-events: auto; display: none; }
+.stick { position: absolute; top: 50%; left: 50%; width: 50px; height: 50px; background: rgba(255, 255, 255, 0.5); border-radius: 50%; transform: translate(-50%, -50%); }
 #stick-left { left: 20px; }
 #stick-right { right: 20px; }
-
-@media (max-width: 1024px) {
-    .joystick-zone { display: block; }
-}
+@media (max-width: 1024px) { .joystick-zone { display: block; } }

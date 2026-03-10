@@ -17,6 +17,10 @@
         <div id="ui-layer">
             <div id="hp-bar">HP: <span id="hpVal" style="color:#0f0">100</span>%</div>
             <div id="leaderboard"></div>
+            
+            <div id="kill-feed"></div>
+            <div id="announcement"></div>
+
             <div id="stick-left" class="joystick-zone"><div class="stick"></div></div>
             <div id="stick-right" class="joystick-zone"><div class="stick" style="background:rgba(255,0,0,0.5)"></div></div>
         </div>
@@ -29,40 +33,38 @@
         const ctx = canvas.getContext("2d");
         const hpSpan = document.getElementById("hpVal");
         const leaderboard = document.getElementById("leaderboard");
+        
+        // Element mới cho Kill Feed
+        const killFeed = document.getElementById("kill-feed");
+        const announcement = document.getElementById("announcement");
 
         let movement = { up: false, down: false, left: false, right: false };
         let lastMovementStr = "";
         let mouse = { x: 0, y: 0 };
         let isMobile = false;
         let mapWalls = [];
-        let hasJoined = false; // Biến kiểm tra xem đã vào game chưa
+        let hasJoined = false; 
 
-        // --- XỬ LÝ ĐĂNG NHẬP ---
+        // Đăng nhập
         const loginScreen = document.getElementById('login-screen');
         const joinBtn = document.getElementById('joinBtn');
         const nameInput = document.getElementById('playerName');
 
         function joinGame() {
             let name = nameInput.value.trim();
-            if (name === "") name = "Ẩn Danh " + Math.floor(Math.random() * 1000); // Tên ngẫu nhiên nếu để trống
-            
-            socket.emit('joinGame', name); // Gửi tên lên server
-            loginScreen.style.display = 'none'; // Ẩn màn hình đăng nhập
+            if (name === "") name = "Player " + Math.floor(Math.random() * 1000); 
+            socket.emit('joinGame', name); 
+            loginScreen.style.display = 'none'; 
             hasJoined = true;
         }
 
         joinBtn.addEventListener('click', joinGame);
-        nameInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') joinGame(); // Bấm Enter cũng vào game được
-        });
+        nameInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') joinGame(); });
 
-        // Nhận dữ liệu tường ngay khi kết nối
-        socket.on('init', (data) => {
-            mapWalls = data.walls;
-        });
+        socket.on('init', (data) => { mapWalls = data.walls; });
 
         function sendMoveIfChanged() {
-            if (!hasJoined) return; // Chưa vào game thì không gửi di chuyển
+            if (!hasJoined) return;
             const currentStr = JSON.stringify(movement);
             if (currentStr !== lastMovementStr) {
                 socket.emit('move', movement);
@@ -72,7 +74,6 @@
 
         document.addEventListener('keydown', (e) => handleKey(e, true));
         document.addEventListener('keyup', (e) => handleKey(e, false));
-        
         function handleKey(e, state) {
              if (!hasJoined) return;
              if(e.code === 'KeyW' || e.key === 'ArrowUp') movement.up = state;
@@ -84,82 +85,58 @@
 
         canvas.addEventListener('mousemove', (e) => {
             const rect = canvas.getBoundingClientRect();
-            const scaleX = canvas.width / rect.width;
-            const scaleY = canvas.height / rect.height;
-            mouse.x = (e.clientX - rect.left) * scaleX;
-            mouse.y = (e.clientY - rect.top) * scaleY;
+            mouse.x = (e.clientX - rect.left) * (canvas.width / rect.width);
+            mouse.y = (e.clientY - rect.top) * (canvas.height / rect.height);
         });
         
+        // Bắn PC
         let lastClickShot = 0; 
-        const FIRE_COOLDOWN = 400; // 400 mili-giây cho mỗi viên
-
+        const FIRE_COOLDOWN = 400; 
         canvas.addEventListener('mousedown', () => {
             if (hasJoined && myPlayer && !myPlayer.dead) {
-                // Kiểm tra xem đã qua thời gian hồi chiêu chưa
                 if (Date.now() - lastClickShot < FIRE_COOLDOWN) return; 
-                
                 lastClickShot = Date.now();
                 const angle = Math.atan2(mouse.y - (myPlayer.y+15), mouse.x - (myPlayer.x+15));
                 socket.emit('shoot', angle);
             }
         });
 
+        // Bắn Mobile
         const leftZone = document.getElementById('stick-left');
         const rightZone = document.getElementById('stick-right');
         let shootInterval = null;
+        let currentShootAngle = 0; 
 
         function handleJoystick(zone, callback) {
             const stick = zone.querySelector('.stick');
             const maxDist = 35; 
-
             zone.addEventListener('touchstart', (e) => { isMobile = true; processMove(e); });
             zone.addEventListener('touchmove', (e) => { e.preventDefault(); processMove(e); });
-            zone.addEventListener('touchend', (e) => {
-                stick.style.transform = `translate(-50%, -50%)`;
-                callback(0, 0, false); 
-            });
-
+            zone.addEventListener('touchend', (e) => { stick.style.transform = `translate(-50%, -50%)`; callback(0, 0, false); });
             function processMove(e) {
-                if (!hasJoined) return; // Chưa vào game thì joystick vô tác dụng
+                if (!hasJoined) return; 
                 const rect = zone.getBoundingClientRect();
-                const touch = e.targetTouches[0];
-                const centerX = rect.left + rect.width / 2;
-                const centerY = rect.top + rect.height / 2;
-                let dx = touch.clientX - centerX;
-                let dy = touch.clientY - centerY;
+                let dx = e.targetTouches[0].clientX - (rect.left + rect.width / 2);
+                let dy = e.targetTouches[0].clientY - (rect.top + rect.height / 2);
                 const dist = Math.sqrt(dx*dx + dy*dy);
-                
-                if (dist > maxDist) {
-                    dx = (dx / dist) * maxDist;
-                    dy = (dy / dist) * maxDist;
-                }
+                if (dist > maxDist) { dx = (dx / dist) * maxDist; dy = (dy / dist) * maxDist; }
                 stick.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
                 callback(dx, dy, true);
             }
         }
 
         handleJoystick(leftZone, (dx, dy, active) => {
-            if (!active) {
-                movement = { up: false, down: false, left: false, right: false };
-            } else {
-                movement.up = dy < -10; movement.down = dy > 10;
-                movement.left = dx < -10; movement.right = dx > 10;
-            }
+            if (!active) movement = { up: false, down: false, left: false, right: false };
+            else { movement.up = dy < -10; movement.down = dy > 10; movement.left = dx < -10; movement.right = dx > 10; }
             sendMoveIfChanged();
         });
-
-        let currentShootAngle = 0; 
 
         handleJoystick(rightZone, (dx, dy, active) => {
             if (active && hasJoined && myPlayer && !myPlayer.dead) {
                 currentShootAngle = Math.atan2(dy, dx); 
-                
                 if (!shootInterval) {
                     socket.emit('shoot', currentShootAngle);
-                    // Tăng delay từ 200 lên 400 mili-giây
-                    shootInterval = setInterval(() => {
-                        socket.emit('shoot', currentShootAngle);
-                    }, FIRE_COOLDOWN);
+                    shootInterval = setInterval(() => socket.emit('shoot', currentShootAngle), FIRE_COOLDOWN);
                 }
             } else {
                 clearInterval(shootInterval);
@@ -167,38 +144,57 @@
             }
         });
 
+        // --- LẮNG NGHE SỰ KIỆN KILL FEED ---
+        let announceTimeout;
+        socket.on('killEvent', (data) => {
+            // 1. Gắn vào danh sách góc phải
+            const msg = document.createElement('div');
+            msg.className = 'kill-msg';
+            msg.innerHTML = `<span style="color:#0f0">${data.killer}</span> ⚔️ <span style="color:#f44">${data.victim}</span>`;
+            killFeed.appendChild(msg);
+
+            // Tự xóa DOM sau 3 giây để nhẹ máy
+            setTimeout(() => { if (msg.parentNode) msg.remove(); }, 3000);
+
+            // 2. Hiện chữ bự nếu có Streak
+            if (data.streak) {
+                announcement.innerText = `${data.killer}: ${data.streak}!`;
+                announcement.style.transform = "translate(-50%, -50%) scale(1)";
+                announcement.style.opacity = 1;
+
+                clearTimeout(announceTimeout);
+                announceTimeout = setTimeout(() => {
+                    announcement.style.transform = "translate(-50%, -50%) scale(0.5)";
+                    announcement.style.opacity = 0;
+                }, 2000);
+            }
+        });
+
+        // --- RENDERING ---
         let myPlayer = null;
         socket.on('state', (state) => {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            // Vẽ Tường (Walls)
             ctx.fillStyle = "#555";
             for(let w of mapWalls) {
                 ctx.fillRect(w.x, w.y, w.w, w.h);
-                ctx.strokeStyle = "#333";
-                ctx.strokeRect(w.x, w.y, w.w, w.h);
+                ctx.strokeStyle = "#333"; ctx.strokeRect(w.x, w.y, w.w, w.h);
             }
 
-            // Vẽ Item
             for(let item of state.items) {
                 ctx.beginPath(); ctx.arc(item.x, item.y, 10, 0, Math.PI*2);
                 ctx.fillStyle = item.type === 'health' ? '#ff4444' : '#4444ff';
-                ctx.fill();
-                ctx.shadowBlur = 10; ctx.shadowColor = ctx.fillStyle; ctx.fill(); ctx.shadowBlur = 0;
+                ctx.fill(); ctx.shadowBlur = 10; ctx.shadowColor = ctx.fillStyle; ctx.fill(); ctx.shadowBlur = 0;
             }
 
-            // Vẽ Boom (Mìn)
             for(let bomb of state.bombs) {
                 ctx.beginPath(); ctx.arc(bomb.x, bomb.y, 12, 0, Math.PI*2);
-                ctx.fillStyle = "#222"; 
-                ctx.fill();
+                ctx.fillStyle = "#222"; ctx.fill();
                 ctx.beginPath(); ctx.arc(bomb.x, bomb.y, 4, 0, Math.PI*2);
-                ctx.fillStyle = "orange"; 
-                ctx.fill();
+                ctx.fillStyle = "orange"; ctx.fill();
                 ctx.shadowBlur = 15; ctx.shadowColor = "red"; ctx.fill(); ctx.shadowBlur = 0;
             }
 
-            // Vẽ Player
             let scores = [];
             for (let id in state.players) {
                 const p = state.players[id];
@@ -207,54 +203,30 @@
                     myPlayer = p;
                     hpSpan.innerText = Math.max(0, p.hp);
                 }
-                
                 if (p.dead) continue; 
+                if (p.speed > 5) { ctx.fillStyle = "rgba(0, 255, 255, 0.3)"; ctx.fillRect(p.x - 5, p.y - 5, 40, 40); }
 
-                if (p.speed > 5) {
-                    ctx.fillStyle = "rgba(0, 255, 255, 0.3)";
-                    ctx.fillRect(p.x - 5, p.y - 5, 40, 40);
-                }
-
-                ctx.fillStyle = p.color;
-                ctx.fillRect(p.x, p.y, 30, 30);
-                
+                ctx.fillStyle = p.color; ctx.fillRect(p.x, p.y, 30, 30);
                 ctx.fillStyle = "red"; ctx.fillRect(p.x, p.y - 10, 30, 5);
                 ctx.fillStyle = "#0f0"; ctx.fillRect(p.x, p.y - 10, (p.hp / 100) * 30, 5);
                 
-                // --- TÊN NGƯỜI CHƠI ---
-                ctx.fillStyle = "white"; 
-                ctx.font = "bold 12px Arial"; 
-                ctx.textAlign = "center";
-                // Chữ có viền đen để dễ đọc trên mọi nền
-                ctx.strokeStyle = "black";
-                ctx.lineWidth = 3;
-                ctx.strokeText(p.name, p.x + 15, p.y - 15);
-                ctx.fillText(p.name, p.x + 15, p.y - 15);
+                ctx.fillStyle = "white"; ctx.font = "bold 12px Arial"; ctx.textAlign = "center";
+                ctx.strokeStyle = "black"; ctx.lineWidth = 3;
+                ctx.strokeText(p.name, p.x + 15, p.y - 15); ctx.fillText(p.name, p.x + 15, p.y - 15);
             }
 
-            // Vẽ Đạn
             ctx.fillStyle = "#ffff00";
-            for (let b of state.bullets) {
-                ctx.beginPath(); ctx.arc(b.x, b.y, 5, 0, Math.PI * 2); ctx.fill();
-            }
+            for (let b of state.bullets) { ctx.beginPath(); ctx.arc(b.x, b.y, 5, 0, Math.PI * 2); ctx.fill(); }
 
-            // --- BẢNG XẾP HẠNG ---
             scores.sort((a, b) => b.score - a.score);
             leaderboard.innerHTML = scores.slice(0, 5).map(s => `${s.name}: <b style="color:#ffcc00">${s.score}</b>`).join('<br>');
 
-            // UI Màn hình chờ hồi sinh
             if (myPlayer && myPlayer.dead) {
                 const timeLeft = Math.max(0, Math.ceil((myPlayer.respawnTime - Date.now()) / 1000));
-                ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
-                
-                ctx.fillStyle = "#ff4444";
-                ctx.font = "bold 40px Arial";
-                ctx.textAlign = "center";
+                ctx.fillStyle = "rgba(0, 0, 0, 0.7)"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = "#ff4444"; ctx.font = "bold 40px Arial"; ctx.textAlign = "center";
                 ctx.fillText("BẠN ĐÃ TỬ TRẬN!", canvas.width / 2, canvas.height / 2 - 20);
-                
-                ctx.fillStyle = "white";
-                ctx.font = "20px Arial";
+                ctx.fillStyle = "white"; ctx.font = "20px Arial";
                 ctx.fillText(`Hồi sinh sau: ${timeLeft}s`, canvas.width / 2, canvas.height / 2 + 30);
             }
         });
@@ -264,10 +236,8 @@
             document.body.style.boxShadow = `inset 0 0 50px ${color}`;
             setTimeout(() => document.body.style.boxShadow = 'none', 300);
         });
-
         socket.on('explosion', () => {
-            document.body.style.background = "#500";
-            setTimeout(() => document.body.style.background = "#000", 100);
+            document.body.style.background = "#500"; setTimeout(() => document.body.style.background = "#000", 100);
         });
     </script>
 </body>

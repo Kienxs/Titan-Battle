@@ -3,17 +3,15 @@ const app = express();
 const http = require('http').createServer(app);
 const io = require('socket.io')(http, { cors: { origin: "*" } });
 
-app.use(express.static(__dirname + '/public')); // Phục vụ file tĩnh trong thư mục public
+app.use(express.static(__dirname + '/public')); 
 
-// --- CẤU HÌNH GAME ---
 const MAP_W = 1000;
 const MAP_H = 800;
 const PLAYER_SIZE = 30;
 const BULLET_SPEED = 12;
 const BASE_SPEED = 5;
 const RESPAWN_TIME_MS = 5000; 
-
-const FIRE_COOLDOWN_SERVER = 350;
+const FIRE_COOLDOWN_SERVER = 350; // Chống hack tốc độ bắn
 
 const HIT_RADIUS_SQ = Math.pow(PLAYER_SIZE / 2 + 5, 2); 
 const ITEM_RADIUS_SQ = Math.pow(PLAYER_SIZE, 2);
@@ -46,30 +44,24 @@ class Item {
 }
 
 io.on('connection', (socket) => {
-    // Gửi map ngay khi họ vừa truy cập trang web (dù chưa nhập tên)
     socket.emit('init', { walls: walls });
 
-    // Lắng nghe sự kiện người chơi bấm "Vào Game"
     socket.on('joinGame', (playerName) => {
-        console.log(`Player Joined: ${playerName} (${socket.id})`);
-        
-        // Cắt bớt tên nếu quá dài để tránh vỡ giao diện (max 12 ký tự)
         let safeName = playerName.substring(0, 12);
-
-        // Tạo dữ liệu nhân vật
         players[socket.id] = {
             x: Math.random() * (MAP_W - 50),
             y: Math.random() * (MAP_H - 50),
             color: `hsl(${Math.random() * 360}, 100%, 50%)`,
             hp: 100,
             score: 0,
-            name: safeName, // Sử dụng tên vừa nhập
+            name: safeName, 
             speed: BASE_SPEED,
             speedTimer: 0,
             moving: { up: false, down: false, left: false, right: false },
             dead: false,
             respawnTime: 0,
-            lastShot: 0
+            lastShot: 0,
+            killStreak: 0 // Biến đếm chuỗi hạ gục
         };
     });
 
@@ -80,11 +72,8 @@ io.on('connection', (socket) => {
     socket.on('shoot', (angle) => {
         const p = players[socket.id];
         if (!p || p.hp <= 0 || p.dead) return; 
-
-        // SERVER CHẶN SPAM ĐẠN: Nếu bắn quá nhanh so với quy định thì lờ đi
-        if (Date.now() - p.lastShot < FIRE_COOLDOWN_SERVER) return;
         
-        // Cập nhật lại thời gian bắn
+        if (Date.now() - p.lastShot < FIRE_COOLDOWN_SERVER) return;
         p.lastShot = Date.now();
 
         bullets.push({
@@ -95,20 +84,19 @@ io.on('connection', (socket) => {
             owner: socket.id
         });
     });
+
+    socket.on('disconnect', () => { delete players[socket.id]; });
 });
 
-function handlePlayerDeath(p, killerId) {
+// Hàm xử lý cái chết (Reset chuỗi kill)
+function handlePlayerDeath(p) {
     p.hp = 0;
     p.dead = true;
     p.respawnTime = Date.now() + RESPAWN_TIME_MS;
     p.moving = { up: false, down: false, left: false, right: false }; 
-    
-    if (killerId && players[killerId] && killerId !== "BOMB") {
-        players[killerId].score++;
-    }
+    p.killStreak = 0; // Chết là mất chuỗi ngay lập tức!
 }
 
-// GAME LOOP (60 FPS)
 setInterval(() => {
     if (items.length < 5 && Math.random() < 0.02) items.push(new Item());
 
@@ -124,34 +112,22 @@ setInterval(() => {
         
         if (p.dead) {
             if (Date.now() >= p.respawnTime) {
-                p.dead = false;
-                p.hp = 100;
-                p.x = Math.random() * (MAP_W - 50);
-                p.y = Math.random() * (MAP_H - 50);
-                p.speed = BASE_SPEED;
+                p.dead = false; p.hp = 100; p.speed = BASE_SPEED;
+                p.x = Math.random() * (MAP_W - 50); p.y = Math.random() * (MAP_H - 50);
             }
             continue; 
         }
         
-        let nextX = p.x;
-        let nextY = p.y;
-
+        let nextX = p.x; let nextY = p.y;
         if (p.moving.left) nextX = Math.max(0, p.x - p.speed);
         if (p.moving.right) nextX = Math.min(MAP_W - PLAYER_SIZE, p.x + p.speed);
-        
-        let collideX = walls.some(w => rectIntersect(nextX, p.y, PLAYER_SIZE, PLAYER_SIZE, w.x, w.y, w.w, w.h));
-        if (!collideX) p.x = nextX; 
+        if (!walls.some(w => rectIntersect(nextX, p.y, PLAYER_SIZE, PLAYER_SIZE, w.x, w.y, w.w, w.h))) p.x = nextX; 
 
         if (p.moving.up) nextY = Math.max(0, p.y - p.speed);
         if (p.moving.down) nextY = Math.min(MAP_H - PLAYER_SIZE, p.y + p.speed);
+        if (!walls.some(w => rectIntersect(p.x, nextY, PLAYER_SIZE, PLAYER_SIZE, w.x, w.y, w.w, w.h))) p.y = nextY;
 
-        let collideY = walls.some(w => rectIntersect(p.x, nextY, PLAYER_SIZE, PLAYER_SIZE, w.x, w.y, w.w, w.h));
-        if (!collideY) p.y = nextY;
-
-        if (p.speedTimer > 0) {
-            p.speedTimer--;
-            if (p.speedTimer <= 0) p.speed = BASE_SPEED;
-        }
+        if (p.speedTimer > 0) { p.speedTimer--; if (p.speedTimer <= 0) p.speed = BASE_SPEED; }
 
         for (let i = items.length - 1; i >= 0; i--) {
             let it = items[i];
@@ -164,33 +140,31 @@ setInterval(() => {
             }
         }
 
+        // Đạp mìn chết
         for (let i = bombs.length - 1; i >= 0; i--) {
             let b = bombs[i];
-            let dx = (p.x + PLAYER_SIZE/2) - b.x; 
-            let dy = (p.y + PLAYER_SIZE/2) - b.y;
+            let dx = (p.x + PLAYER_SIZE/2) - b.x; let dy = (p.y + PLAYER_SIZE/2) - b.y;
             if ((dx * dx + dy * dy) < BOMB_RADIUS_SQ) {
                 p.hp -= 50; 
                 bombs.splice(i, 1);
                 io.to(id).emit('explosion'); 
                 
                 if (p.hp <= 0) {
-                    handlePlayerDeath(p, "BOMB");
+                    // Mìn giết
+                    io.emit('killEvent', { killer: "BOMB", victim: p.name, streak: "" });
+                    handlePlayerDeath(p);
                 }
             }
         }
     }
 
+    // Xử lý đạn trúng người
     for (let i = bullets.length - 1; i >= 0; i--) {
         let b = bullets[i];
-        b.x += b.vx;
-        b.y += b.vy;
+        b.x += b.vx; b.y += b.vy;
 
-        if (b.x < 0 || b.x > MAP_W || b.y < 0 || b.y > MAP_H) {
-            bullets.splice(i, 1); continue;
-        }
-
-        let hitWall = walls.some(w => b.x >= w.x && b.x <= w.x + w.w && b.y >= w.y && b.y <= w.y + w.h);
-        if (hitWall) {
+        if (b.x < 0 || b.x > MAP_W || b.y < 0 || b.y > MAP_H) { bullets.splice(i, 1); continue; }
+        if (walls.some(w => b.x >= w.x && b.x <= w.x + w.w && b.y >= w.y && b.y <= w.y + w.h)) {
             bullets.splice(i, 1); continue;
         }
 
@@ -198,8 +172,7 @@ setInterval(() => {
         for (let id in players) {
             let p = players[id];
             if (id !== b.owner && !p.dead && p.hp > 0) {
-                const dx = b.x - (p.x + PLAYER_SIZE/2);
-                const dy = b.y - (p.y + PLAYER_SIZE/2);
+                const dx = b.x - (p.x + PLAYER_SIZE/2); const dy = b.y - (p.y + PLAYER_SIZE/2);
                 
                 if ((dx * dx + dy * dy) < HIT_RADIUS_SQ) {
                     p.hp -= 10;
@@ -207,7 +180,36 @@ setInterval(() => {
                     io.to(id).emit('hit');
                     
                     if (p.hp <= 0) {
-                        handlePlayerDeath(p, b.owner);
+                        let killerName = "Unknown";
+                        let streakText = "";
+
+                        // Kiểm tra người giết
+                        if (players[b.owner]) {
+                            let killer = players[b.owner];
+                            killer.score++;
+                            killer.killStreak++;
+                            killerName = killer.name;
+
+                            // Đặt danh hiệu dựa trên killStreak
+                            switch(killer.killStreak) {
+                                case 1: streakText = ""; break;
+                                case 2: streakText = "DOUBLE KILL"; break;
+                                case 3: streakText = "TRIPLE KILL"; break;
+                                case 4: streakText = "QUADRA KILL"; break;
+                                case 5: streakText = "PENTA KILL"; break;
+                                case 6: streakText = "HEXA KILL"; break;
+                                default: streakText = "GODLIKE"; break; // Từ mạng 7 trở đi
+                            }
+                        }
+
+                        // Thông báo toàn server
+                        io.emit('killEvent', {
+                            killer: killerName,
+                            victim: p.name,
+                            streak: streakText
+                        });
+
+                        handlePlayerDeath(p);
                     }
                     break;
                 }
@@ -219,12 +221,7 @@ setInterval(() => {
     let minPlayers = {};
     for (let id in players) {
         let p = players[id];
-        minPlayers[id] = {
-            ...p,
-            x: Math.round(p.x),
-            y: Math.round(p.y),
-            moving: undefined 
-        };
+        minPlayers[id] = { ...p, x: Math.round(p.x), y: Math.round(p.y), moving: undefined };
     }
     
     let minBullets = bullets.map(b => ({ x: Math.round(b.x), y: Math.round(b.y) }));
