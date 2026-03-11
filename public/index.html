@@ -17,10 +17,8 @@
         <div id="ui-layer">
             <div id="hp-bar">HP: <span id="hpVal" style="color:#0f0">100</span>%</div>
             <div id="leaderboard"></div>
-            
             <div id="kill-feed"></div>
             <div id="announcement"></div>
-
             <div id="stick-left" class="joystick-zone"><div class="stick"></div></div>
             <div id="stick-right" class="joystick-zone"><div class="stick" style="background:rgba(255,0,0,0.5)"></div></div>
         </div>
@@ -33,8 +31,6 @@
         const ctx = canvas.getContext("2d");
         const hpSpan = document.getElementById("hpVal");
         const leaderboard = document.getElementById("leaderboard");
-        
-        // Element mới cho Kill Feed
         const killFeed = document.getElementById("kill-feed");
         const announcement = document.getElementById("announcement");
 
@@ -44,8 +40,8 @@
         let isMobile = false;
         let mapWalls = [];
         let hasJoined = false; 
+        let myPlayer = null;
 
-        // Đăng nhập
         const loginScreen = document.getElementById('login-screen');
         const joinBtn = document.getElementById('joinBtn');
         const nameInput = document.getElementById('playerName');
@@ -89,19 +85,21 @@
             mouse.y = (e.clientY - rect.top) * (canvas.height / rect.height);
         });
         
-        // Bắn PC
         let lastClickShot = 0; 
         const FIRE_COOLDOWN = 400; 
         canvas.addEventListener('mousedown', () => {
             if (hasJoined && myPlayer && !myPlayer.dead) {
                 if (Date.now() - lastClickShot < FIRE_COOLDOWN) return; 
                 lastClickShot = Date.now();
-                const angle = Math.atan2(mouse.y - (myPlayer.y+15), mouse.x - (myPlayer.x+15));
-                socket.emit('shoot', angle);
+                // Dùng vị trí render thực tế trên màn hình để tính góc bắn chuẩn xác hơn
+                const rPlayer = renderPlayers[socket.id];
+                if (rPlayer) {
+                    const angle = Math.atan2(mouse.y - (rPlayer.y + 15), mouse.x - (rPlayer.x + 15));
+                    socket.emit('shoot', angle);
+                }
             }
         });
 
-        // Bắn Mobile
         const leftZone = document.getElementById('stick-left');
         const rightZone = document.getElementById('stick-right');
         let shootInterval = null;
@@ -144,19 +142,15 @@
             }
         });
 
-        // --- LẮNG NGHE SỰ KIỆN KILL FEED ---
         let announceTimeout;
         socket.on('killEvent', (data) => {
-            // 1. Gắn vào danh sách góc phải
             const msg = document.createElement('div');
             msg.className = 'kill-msg';
             msg.innerHTML = `<span style="color:#0f0">${data.killer}</span> ⚔️ <span style="color:#f44">${data.victim}</span>`;
             killFeed.appendChild(msg);
 
-            // Tự xóa DOM sau 3 giây để nhẹ máy
             setTimeout(() => { if (msg.parentNode) msg.remove(); }, 3000);
 
-            // 2. Hiện chữ bự nếu có Streak
             if (data.streak) {
                 announcement.innerText = `${data.killer}: ${data.streak}!`;
                 announcement.style.transform = "translate(-50%, -50%) scale(1)";
@@ -170,24 +164,61 @@
             }
         });
 
-        // --- RENDERING ---
-        let myPlayer = null;
+        socket.on('pickup', (type) => {
+            const color = type === 'health' ? 'rgba(255,0,0,0.2)' : 'rgba(0,0,255,0.2)';
+            document.body.style.boxShadow = `inset 0 0 50px ${color}`;
+            setTimeout(() => document.body.style.boxShadow = 'none', 300);
+        });
+
+        socket.on('explosion', () => {
+            document.body.style.background = "#500"; setTimeout(() => document.body.style.background = "#000", 100);
+        });
+
+        
+        let targetState = { players: {}, bullets: [], items: [], bombs: [] };
+        let renderPlayers = {}; // Lưu tọa độ 
+
+        // Hàm nội suy: Tính toán vị trí trung gian giữa điểm hiện tại và điểm đích
+        function lerp(start, end, factor) {
+            return start + (end - start) * factor;
+        }
+
+        // Chỉ cập nhật targetState khi nhận gói tin, KHÔNG vẽ ở đây
         socket.on('state', (state) => {
+            targetState = state;
+            
+            // Dọn dẹp những người chơi đã thoát khỏi mảng render
+            for (let id in renderPlayers) {
+                if (!targetState.players[id]) {
+                    delete renderPlayers[id];
+                }
+            }
+        });
+
+        // Vòng lặp vẽ hình độc lập, chạy với tốc độ tối đa của màn hình (thường là 60FPS)
+        function gameLoop() {
+            requestAnimationFrame(gameLoop);
+            
+            if (!targetState.players) return; // Chờ đến khi có dữ liệu từ server
+
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+            // 1. Vẽ Tường
             ctx.fillStyle = "#555";
             for(let w of mapWalls) {
                 ctx.fillRect(w.x, w.y, w.w, w.h);
                 ctx.strokeStyle = "#333"; ctx.strokeRect(w.x, w.y, w.w, w.h);
             }
 
-            for(let item of state.items) {
+            // 2. Vẽ Items
+            for(let item of targetState.items) {
                 ctx.beginPath(); ctx.arc(item.x, item.y, 10, 0, Math.PI*2);
                 ctx.fillStyle = item.type === 'health' ? '#ff4444' : '#4444ff';
                 ctx.fill(); ctx.shadowBlur = 10; ctx.shadowColor = ctx.fillStyle; ctx.fill(); ctx.shadowBlur = 0;
             }
 
-            for(let bomb of state.bombs) {
+            // 3. Vẽ Bombs
+            for(let bomb of targetState.bombs) {
                 ctx.beginPath(); ctx.arc(bomb.x, bomb.y, 12, 0, Math.PI*2);
                 ctx.fillStyle = "#222"; ctx.fill();
                 ctx.beginPath(); ctx.arc(bomb.x, bomb.y, 4, 0, Math.PI*2);
@@ -195,32 +226,63 @@
                 ctx.shadowBlur = 15; ctx.shadowColor = "red"; ctx.fill(); ctx.shadowBlur = 0;
             }
 
+            // 4. Vẽ Players (CÓ NỘI SUY)
             let scores = [];
-            for (let id in state.players) {
-                const p = state.players[id];
+            for (let id in targetState.players) {
+                const p = targetState.players[id];
                 scores.push({name: p.name, score: p.score});
+                
                 if (id === socket.id) {
                     myPlayer = p;
                     hpSpan.innerText = Math.max(0, p.hp);
                 }
-                if (p.dead) continue; 
-                if (p.speed > 5) { ctx.fillStyle = "rgba(0, 255, 255, 0.3)"; ctx.fillRect(p.x - 5, p.y - 5, 40, 40); }
 
-                ctx.fillStyle = p.color; ctx.fillRect(p.x, p.y, 30, 30);
-                ctx.fillStyle = "red"; ctx.fillRect(p.x, p.y - 10, 30, 5);
-                ctx.fillStyle = "#0f0"; ctx.fillRect(p.x, p.y - 10, (p.hp / 100) * 30, 5);
+                if (p.dead) continue; 
+
+                // Lần đầu thấy player này, khởi tạo vị trí render bằng vị trí server
+                if (!renderPlayers[id]) {
+                    renderPlayers[id] = { x: p.x, y: p.y };
+                }
+
+                // Tính toán vị trí nội suy mới (trượt mượt mà tới vị trí p.x, p.y)
+                renderPlayers[id].x = lerp(renderPlayers[id].x, p.x, 0.3);
+                renderPlayers[id].y = lerp(renderPlayers[id].y, p.y, 0.3);
+
+                let renderX = renderPlayers[id].x;
+                let renderY = renderPlayers[id].y;
+
+                // Hiệu ứng ăn tốc độ
+                if (p.speed > 5) { 
+                    ctx.fillStyle = "rgba(0, 255, 255, 0.3)"; 
+                    ctx.fillRect(renderX - 5, renderY - 5, 40, 40); 
+                }
+
+                // Vẽ nhân vật
+                ctx.fillStyle = p.color; 
+                ctx.fillRect(renderX, renderY, 30, 30);
                 
+                // Vẽ thanh máu
+                ctx.fillStyle = "red"; ctx.fillRect(renderX, renderY - 10, 30, 5);
+                ctx.fillStyle = "#0f0"; ctx.fillRect(renderX, renderY - 10, (p.hp / 100) * 30, 5);
+                
+                // Vẽ tên
                 ctx.fillStyle = "white"; ctx.font = "bold 12px Arial"; ctx.textAlign = "center";
                 ctx.strokeStyle = "black"; ctx.lineWidth = 3;
-                ctx.strokeText(p.name, p.x + 15, p.y - 15); ctx.fillText(p.name, p.x + 15, p.y - 15);
+                ctx.strokeText(p.name, renderX + 15, renderY - 15); 
+                ctx.fillText(p.name, renderX + 15, renderY - 15);
             }
 
+            // 5. Vẽ Đạn
             ctx.fillStyle = "#ffff00";
-            for (let b of state.bullets) { ctx.beginPath(); ctx.arc(b.x, b.y, 5, 0, Math.PI * 2); ctx.fill(); }
+            for (let b of targetState.bullets) { 
+                ctx.beginPath(); ctx.arc(b.x, b.y, 5, 0, Math.PI * 2); ctx.fill(); 
+            }
 
+            // 6. Cập nhật Leaderboard
             scores.sort((a, b) => b.score - a.score);
             leaderboard.innerHTML = scores.slice(0, 5).map(s => `${s.name}: <b style="color:#ffcc00">${s.score}</b>`).join('<br>');
 
+            // 7. Hiển thị thông báo khi chết
             if (myPlayer && myPlayer.dead) {
                 const timeLeft = Math.max(0, Math.ceil((myPlayer.respawnTime - Date.now()) / 1000));
                 ctx.fillStyle = "rgba(0, 0, 0, 0.7)"; ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -229,16 +291,10 @@
                 ctx.fillStyle = "white"; ctx.font = "20px Arial";
                 ctx.fillText(`Hồi sinh sau: ${timeLeft}s`, canvas.width / 2, canvas.height / 2 + 30);
             }
-        });
+        }
 
-        socket.on('pickup', (type) => {
-            const color = type === 'health' ? 'rgba(255,0,0,0.2)' : 'rgba(0,0,255,0.2)';
-            document.body.style.boxShadow = `inset 0 0 50px ${color}`;
-            setTimeout(() => document.body.style.boxShadow = 'none', 300);
-        });
-        socket.on('explosion', () => {
-            document.body.style.background = "#500"; setTimeout(() => document.body.style.background = "#000", 100);
-        });
+        // Bắt đầu vòng lặp
+        requestAnimationFrame(gameLoop);
     </script>
 </body>
 </html>

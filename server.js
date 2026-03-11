@@ -11,7 +11,7 @@ const PLAYER_SIZE = 30;
 const BULLET_SPEED = 12;
 const BASE_SPEED = 5;
 const RESPAWN_TIME_MS = 5000; 
-const FIRE_COOLDOWN_SERVER = 350; // Chống hack tốc độ bắn
+const FIRE_COOLDOWN_SERVER = 350;
 
 const HIT_RADIUS_SQ = Math.pow(PLAYER_SIZE / 2 + 5, 2); 
 const ITEM_RADIUS_SQ = Math.pow(PLAYER_SIZE, 2);
@@ -61,7 +61,7 @@ io.on('connection', (socket) => {
             dead: false,
             respawnTime: 0,
             lastShot: 0,
-            killStreak: 0 // Biến đếm chuỗi hạ gục
+            killStreak: 0
         };
     });
 
@@ -88,15 +88,15 @@ io.on('connection', (socket) => {
     socket.on('disconnect', () => { delete players[socket.id]; });
 });
 
-// Hàm xử lý cái chết (Reset chuỗi kill)
 function handlePlayerDeath(p) {
     p.hp = 0;
     p.dead = true;
     p.respawnTime = Date.now() + RESPAWN_TIME_MS;
     p.moving = { up: false, down: false, left: false, right: false }; 
-    p.killStreak = 0; // Chết là mất chuỗi ngay lập tức!
+    p.killStreak = 0;
 }
 
+// TỐI ƯU 1: Server chạy 20 Tick/s (50ms) thay vì 60 Tick/s
 setInterval(() => {
     if (items.length < 5 && Math.random() < 0.02) items.push(new Item());
 
@@ -140,7 +140,6 @@ setInterval(() => {
             }
         }
 
-        // Đạp mìn chết
         for (let i = bombs.length - 1; i >= 0; i--) {
             let b = bombs[i];
             let dx = (p.x + PLAYER_SIZE/2) - b.x; let dy = (p.y + PLAYER_SIZE/2) - b.y;
@@ -150,7 +149,6 @@ setInterval(() => {
                 io.to(id).emit('explosion'); 
                 
                 if (p.hp <= 0) {
-                    // Mìn giết
                     io.emit('killEvent', { killer: "BOMB", victim: p.name, streak: "" });
                     handlePlayerDeath(p);
                 }
@@ -158,7 +156,6 @@ setInterval(() => {
         }
     }
 
-    // Xử lý đạn trúng người
     for (let i = bullets.length - 1; i >= 0; i--) {
         let b = bullets[i];
         b.x += b.vx; b.y += b.vy;
@@ -183,14 +180,12 @@ setInterval(() => {
                         let killerName = "Unknown";
                         let streakText = "";
 
-                        // Kiểm tra người giết
                         if (players[b.owner]) {
                             let killer = players[b.owner];
                             killer.score++;
                             killer.killStreak++;
                             killerName = killer.name;
 
-                            // Đặt danh hiệu dựa trên killStreak
                             switch(killer.killStreak) {
                                 case 1: streakText = ""; break;
                                 case 2: streakText = "DOUBLE KILL"; break;
@@ -198,17 +193,11 @@ setInterval(() => {
                                 case 4: streakText = "QUADRA KILL"; break;
                                 case 5: streakText = "PENTA KILL"; break;
                                 case 6: streakText = "HEXA KILL"; break;
-                                default: streakText = "GODLIKE"; break; // Từ mạng 7 trở đi
+                                default: streakText = "GODLIKE"; break;
                             }
                         }
 
-                        // Thông báo toàn server
-                        io.emit('killEvent', {
-                            killer: killerName,
-                            victim: p.name,
-                            streak: streakText
-                        });
-
+                        io.emit('killEvent', { killer: killerName, victim: p.name, streak: streakText });
                         handlePlayerDeath(p);
                     }
                     break;
@@ -218,19 +207,33 @@ setInterval(() => {
         if (bulletHitPlayer) bullets.splice(i, 1);
     }
 
+    // TỐI ƯU 2 & 3: Dùng bitwise ~~ và không dùng map/spread object
     let minPlayers = {};
     for (let id in players) {
         let p = players[id];
-        minPlayers[id] = { ...p, x: Math.round(p.x), y: Math.round(p.y), moving: undefined };
+        // Chỉ gửi những gì client CẦN ĐỂ VẼ
+        minPlayers[id] = { 
+            x: ~~p.x, 
+            y: ~~p.y, 
+            hp: p.hp,
+            color: p.color,
+            name: p.name,
+            dead: p.dead,
+            score: p.score,
+            speed: p.speed,
+            respawnTime: p.respawnTime
+        };
     }
     
-    let minBullets = bullets.map(b => ({ x: Math.round(b.x), y: Math.round(b.y) }));
-    let minItems = items.map(it => ({ x: Math.round(it.x), y: Math.round(it.y), type: it.type }));
-    let minBombs = bombs.map(b => ({ x: Math.round(b.x), y: Math.round(b.y) }));
+    let minBullets = [];
+    for(let i = 0; i < bullets.length; i++) {
+        minBullets.push({ x: ~~bullets[i].x, y: ~~bullets[i].y });
+    }
 
-    io.emit('state', { players: minPlayers, bullets: minBullets, items: minItems, bombs: minBombs });
+    // items và bombs gửi thẳng, tránh map() tạo mảng rác mới
+    io.emit('state', { players: minPlayers, bullets: minBullets, items: items, bombs: bombs });
 
-}, 1000 / 60);
+}, 1000 / 20); // 20 FPS thay vì 60 FPS
 
 const PORT = process.env.PORT || 3000;
 http.listen(PORT, () => { console.log('Server running on port ' + PORT); });

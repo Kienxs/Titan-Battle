@@ -48,7 +48,6 @@ canvas {
     text-shadow: 1px 1px 0 #000; 
 }
 
-/* --- KILL FEED (Ai giết ai) --- */
 #kill-feed {
     position: absolute;
     top: 150px;
@@ -65,7 +64,7 @@ canvas {
     border-radius: 5px;
     font-size: 14px;
     font-weight: bold;
-    animation: fadeOut 3s forwards; /* Tự động biến mất sau 3s */
+    animation: fadeOut 3s forwards;
 }
 @keyframes fadeOut {
     0% { opacity: 1; transform: translateX(0); }
@@ -73,7 +72,6 @@ canvas {
     100% { opacity: 0; transform: translateX(20px); }
 }
 
-/* --- HIỆU ỨNG CHỮ DOUBLE/TRIPLE KILL --- */
 #announcement {
     position: absolute;
     top: 25%;
@@ -91,7 +89,6 @@ canvas {
     white-space: nowrap;
 }
 
-/* Màn hình đăng nhập */
 #login-screen {
     position: absolute; top: 0; left: 0; width: 100vw; height: 100vh;
     background: rgba(0, 0, 0, 0.85); display: flex; flex-direction: column;
@@ -103,7 +100,6 @@ canvas {
 #joinBtn { padding: 12px 30px; font-size: 20px; font-weight: bold; color: black; background: #0f0; border: none; border-radius: 5px; cursor: pointer; box-shadow: 0 4px 0 #007700; transition: all 0.1s; }
 #joinBtn:active { box-shadow: 0 0px 0 #007700; transform: translateY(4px); }
 
-/* Joystick */
 .joystick-zone { position: absolute; bottom: 20px; width: 120px; height: 120px; background: rgba(255, 255, 255, 0.1); border-radius: 50%; pointer-events: auto; display: none; }
 .stick { position: absolute; top: 50%; left: 50%; width: 50px; height: 50px; background: rgba(255, 255, 255, 0.5); border-radius: 50%; transform: translate(-50%, -50%); }
 #stick-left { left: 20px; }
