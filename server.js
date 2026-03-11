@@ -8,8 +8,8 @@ app.use(express.static(__dirname + '/public'));
 const MAP_W = 1000;
 const MAP_H = 800;
 const PLAYER_SIZE = 30;
-const BULLET_SPEED = 12;
-const BASE_SPEED = 5;
+const BULLET_SPEED = 36;
+const BASE_SPEED = 15;
 const RESPAWN_TIME_MS = 5000; 
 const FIRE_COOLDOWN_SERVER = 350;
 
@@ -134,7 +134,7 @@ setInterval(() => {
             let dx = p.x - it.x; let dy = p.y - it.y;
             if ((dx * dx + dy * dy) < ITEM_RADIUS_SQ) {
                 if (it.type === 'health') p.hp = Math.min(100, p.hp + 30);
-                else if (it.type === 'speed') { p.speed = BASE_SPEED * 2; p.speedTimer = 300; }
+                else if (it.type === 'speed') { p.speed = BASE_SPEED * 2; p.speedTimer = 100; }
                 items.splice(i, 1);
                 io.to(id).emit('pickup', it.type); 
             }
