@@ -34,12 +34,38 @@ function rectIntersect(x1, y1, w1, h1, x2, y2, w2, h2) {
     return x2 < x1 + w1 && x2 + w2 > x1 && y2 < y1 + h1 && y2 + h2 > y1;
 }
 
+// HÀM MỚI: TÌM VỊ TRÍ AN TOÀN KHÔNG BỊ KẸT TƯỜNG
+function getSafeSpawnPosition(width, height) {
+    let x, y;
+    let isValid = false;
+    let attempts = 0; // Đề phòng vòng lặp vô hạn
+    
+    while (!isValid && attempts < 100) {
+        x = Math.random() * (MAP_W - width);
+        y = Math.random() * (MAP_H - height);
+        isValid = true;
+        
+        // Kiểm tra xem hình chữ nhật (x, y, width, height) có đụng tường không
+        for (let w of walls) {
+            if (rectIntersect(x, y, width, height, w.x, w.y, w.w, w.h)) {
+                isValid = false; // Đụng tường rồi, phải tìm lại
+                break;
+            }
+        }
+        attempts++;
+    }
+    return { x, y };
+}
+
 class Item {
     constructor() {
         this.id = Math.random().toString(36).substr(2, 9);
-        this.x = Math.random() * (MAP_W - 20);
-        this.y = Math.random() * (MAP_H - 20);
         this.type = Math.random() > 0.5 ? 'health' : 'speed';
+        
+        // Kích thước item là bán kính 10 => chiều ngang/dọc là 20
+        let pos = getSafeSpawnPosition(20, 20);
+        this.x = pos.x + 10; // Cộng thêm 10 để lấy tâm hình tròn
+        this.y = pos.y + 10;
     }
 }
 
@@ -48,9 +74,13 @@ io.on('connection', (socket) => {
 
     socket.on('joinGame', (playerName) => {
         let safeName = playerName.substring(0, 12);
+        
+        // Dùng hàm tìm chỗ trống cho người chơi mới
+        let pos = getSafeSpawnPosition(PLAYER_SIZE, PLAYER_SIZE);
+
         players[socket.id] = {
-            x: Math.random() * (MAP_W - 50),
-            y: Math.random() * (MAP_H - 50),
+            x: pos.x,
+            y: pos.y,
             color: `hsl(${Math.random() * 360}, 100%, 50%)`,
             hp: 100,
             score: 0,
@@ -96,14 +126,15 @@ function handlePlayerDeath(p) {
     p.killStreak = 0;
 }
 
-// TỐI ƯU 1: Server chạy 20 Tick/s (50ms) thay vì 60 Tick/s
 setInterval(() => {
     if (items.length < 5 && Math.random() < 0.02) items.push(new Item());
 
     if (bombs.length < 4 && Math.random() < 0.005) {
+        // Kích thước mìn là bán kính 12 => chiều ngang/dọc là 24
+        let pos = getSafeSpawnPosition(24, 24);
         bombs.push({
-            x: Math.random() * (MAP_W - 40) + 20,
-            y: Math.random() * (MAP_H - 40) + 20
+            x: pos.x + 12,
+            y: pos.y + 12
         });
     }
 
@@ -113,7 +144,11 @@ setInterval(() => {
         if (p.dead) {
             if (Date.now() >= p.respawnTime) {
                 p.dead = false; p.hp = 100; p.speed = BASE_SPEED;
-                p.x = Math.random() * (MAP_W - 50); p.y = Math.random() * (MAP_H - 50);
+                
+                // Dùng hàm tìm chỗ trống khi người chơi hồi sinh
+                let pos = getSafeSpawnPosition(PLAYER_SIZE, PLAYER_SIZE);
+                p.x = pos.x; 
+                p.y = pos.y;
             }
             continue; 
         }
@@ -207,11 +242,9 @@ setInterval(() => {
         if (bulletHitPlayer) bullets.splice(i, 1);
     }
 
-    // TỐI ƯU 2 & 3: Dùng bitwise ~~ và không dùng map/spread object
     let minPlayers = {};
     for (let id in players) {
         let p = players[id];
-        // Chỉ gửi những gì client CẦN ĐỂ VẼ
         minPlayers[id] = { 
             x: ~~p.x, 
             y: ~~p.y, 
@@ -230,10 +263,9 @@ setInterval(() => {
         minBullets.push({ x: ~~bullets[i].x, y: ~~bullets[i].y });
     }
 
-    // items và bombs gửi thẳng, tránh map() tạo mảng rác mới
     io.emit('state', { players: minPlayers, bullets: minBullets, items: items, bombs: bombs });
 
-}, 1000 / 20); // 20 FPS thay vì 60 FPS
+}, 1000 / 20); 
 
 const PORT = process.env.PORT || 3000;
 http.listen(PORT, () => { console.log('Server running on port ' + PORT); });
